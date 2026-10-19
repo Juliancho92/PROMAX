@@ -1,0 +1,2623 @@
+openapi: 3.0.3
+info:
+  title: PROMAX MES Backend API
+  description: API for PROMAX NUEVO - Shop Floor Control (Production, Quality, Maintenance)
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Base URL for PROMAX MES API
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: User authentication and session management
+  - name: Maestros
+    description: Master data entities (Plantas, Líneas, Centros de Trabajo, Turnos, Usuarios)
+  - name: Produccion
+    description: Production order execution and time tracking
+  - name: Calidad
+    description: Quality management (Checklists, Inspecciones, No Conformidades)
+  - name: Mantenimiento
+    description: Maintenance management (Activos, Planes, Órdenes de Trabajo)
+  - name: Sync
+    description: S/4HANA Cloud synchronization and status
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cedula
+                - password
+              properties:
+                cedula:
+                  type: string
+                  description: User ID (cedula)
+                  example: "123456789"
+                password:
+                  type: string
+                  description: User password
+                  format: password
+                  example: "SecurePa$$1"
+                rememberMe:
+                  type: boolean
+                  description: Keep session for 30 days
+                  default: false
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                    format: jwt
+                  refreshToken:
+                    type: string
+                    format: jwt
+                  user:
+                    $ref: '#/components/schemas/UsuarioProfile'
+        "401":
+          description: Invalid credentials
+        "403":
+          description: Account locked or inactive
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token
+                  format: jwt
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                    format: jwt
+                  refreshToken:
+                    type: string
+                    format: jwt
+        "401":
+          description: Invalid or expired refresh token
+  /auth/forgot:
+    post:
+      summary: Request password reset
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email
+                  example: "user@example.com"
+      responses:
+        "202":
+          description: Password reset email sent (if email exists)
+  /auth/reset:
+    post:
+      summary: Reset password
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - newPassword
+              properties:
+                token:
+                  type: string
+                  description: Reset token from email
+                newPassword:
+                  type: string
+                  description: New password
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: Password reset successful
+        "400":
+          description: Invalid or expired token
+  /turnos:
+    get:
+      summary: Get list of shifts
+      tags:
+        - Maestros
+      parameters:
+        - name: planta
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Plant code
+        - name: fecha
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Date for shift query
+      responses:
+        "200":
+          description: List of shifts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Turno'
+  /centros:
+    get:
+      summary: Get list of work centers for a user and shift
+      tags:
+        - Maestros
+      parameters:
+        - name: usuario
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+        - name: turno
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Shift code
+      responses:
+        "200":
+          description: List of work centers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CentroTrabajo'
+  /ordenes:
+    get:
+      summary: Search production orders
+      tags:
+        - Produccion
+      parameters:
+        - name: centro
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Work center code
+        - name: turno
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Shift code
+        - name: estado
+          in: query
+          schema:
+            type: string
+            enum: [Aprobada, EnProceso, Completada, Cancelada, Borrador]
+            default: Aprobada
+          description: Production order status
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for order (opPadre/opNumero)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: List of production orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrdenProduccion'
+  /ordenes/iniciar:
+    post:
+      summary: Initiate production for one or more orders
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ordenIds
+                - modo
+              properties:
+                ordenIds:
+                  type: array
+                  items:
+                    type: string
+                  description: List of production order IDs (opPadre_opNumero_operacion)
+                modo:
+                  type: string
+                  enum: [individual, multiple, nesteo]
+                  description: Mode of operation initiation
+                nesteoId:
+                  type: string
+                  description: Nesteo ID (if modo is nesteo)
+      responses:
+        "200":
+          description: Production initiated successfully
+  /ordenes/{ordenId}/operaciones:
+    get:
+      summary: Get operations for a specific production order
+      tags:
+        - Produccion
+      parameters:
+        - name: ordenId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion)
+      responses:
+        "200":
+          description: List of operations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperacionOrden'
+  /ordenes/{ordenId}/iniciar-produccion:
+    post:
+      summary: Validate and start production for an order
+      tags:
+        - Produccion
+      parameters:
+        - name: ordenId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - cantidadOperarios
+                - tipoActividad
+                - codigoOperacion
+              properties:
+                cantidadOperarios:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  example: 1
+                operariosAyudantes:
+                  type: array
+                  items:
+                    type: string
+                  description: List of helper user IDs (cedulas)
+                  example: ["987654321"]
+                tipoActividad:
+                  type: string
+                  description: Initial activity type code
+                  example: "PRODUCCION"
+                codigoOperacion:
+                  type: string
+                  description: Initial operation code
+                  example: "SETUP_LINEA"
+      responses:
+        "200":
+          description: Production started successfully
+        "400":
+          description: Validation error
+  /tipos-actividad:
+    get:
+      summary: Get activity types
+      tags:
+        - Maestros
+      parameters:
+        - name: centro
+          in: query
+          schema:
+            type: string
+          description: Filter by work center code
+      responses:
+        "200":
+          description: List of activity types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TipoActividad'
+  /codigos-operacion:
+    get:
+      summary: Get operation codes
+      tags:
+        - Maestros
+      parameters:
+        - name: tipoActividad
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Filter by activity type code
+      responses:
+        "200":
+          description: List of operation codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CodigoOperacion'
+  /paros:
+    get:
+      summary: Get production stops for an order
+      tags:
+        - Produccion
+      parameters:
+        - name: ordenId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion)
+        - name: turno
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Shift code
+        - name: fecha
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Date of production stops
+      responses:
+        "200":
+          description: List of production stops
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RegistroParo'
+    post:
+      summary: Record a new production stop
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistroParoInput'
+      responses:
+        "200":
+          description: Production stop recorded successfully
+        "400":
+          description: Validation error
+  /paros/batch:
+    post:
+      summary: Record multiple production stops (offline sync)
+      tags:
+        - Produccion
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RegistroParoInput'
+      responses:
+        "200":
+          description: Batch production stops recorded successfully
+        "400":
+          description: Validation error
+  /paros/sugerir-razon:
+    post:
+      summary: Suggest a reason for a production stop (F2)
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - centroId
+              properties:
+                centroId:
+                  type: string
+                  description: Work center code
+                sensorData:
+                  type: object
+                  description: Sensor data snapshot (F4)
+      responses:
+        "200":
+          description: Suggested reason for production stop
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tipoParoSugeridoId:
+                    type: string
+                  confidence:
+                    type: number
+                    format: float
+  /produccion:
+    get:
+      summary: Get production records for an order
+      tags:
+        - Produccion
+      parameters:
+        - name: ordenId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion)
+        - name: turno
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Shift code
+        - name: fecha
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Date of production records
+      responses:
+        "200":
+          description: List of production records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RegistroProduccion'
+    post:
+      summary: Record new production data
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistroProduccionInput'
+      responses:
+        "200":
+          description: Production data recorded successfully
+        "400":
+          description: Validation error
+  /produccion/batch:
+    post:
+      summary: Record multiple production data (offline sync)
+      tags:
+        - Produccion
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RegistroProduccionInput'
+      responses:
+        "200":
+          description: Batch production data recorded successfully
+        "400":
+          description: Validation error
+  /ordenes/{ordenId}/objetivo-hora:
+    get:
+      summary: Get hourly target for a production order
+      tags:
+        - Produccion
+      parameters:
+        - name: ordenId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion)
+      responses:
+        "200":
+          description: Hourly target
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  objetivoHora:
+                    type: number
+                    format: float
+  /sync/flush:
+    post:
+      summary: Trigger immediate synchronization of all pending offline data
+      tags:
+        - Sync
+      responses:
+        "200":
+          description: Synchronization triggered
+  /sync/retry:
+    post:
+      summary: Retry synchronization for specific pending items
+      tags:
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of IDs of pending items to retry
+      responses:
+        "200":
+          description: Retry initiated
+  /sync/retry-all:
+    post:
+      summary: Retry synchronization for all filtered pending items
+      tags:
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                planta:
+                  type: string
+                linea:
+                  type: array
+                  items:
+                    type: string
+                centro:
+                  type: array
+                  items:
+                    type: string
+                turno:
+                  type: string
+                fechaRango:
+                  type: array
+                  items:
+                    type: string
+                    format: date
+                  minItems: 2
+                  maxItems: 2
+                estadoSync:
+                  type: array
+                  items:
+                    type: string
+                    enum: [PENDING, ERROR]
+                entityType:
+                  type: array
+                  items:
+                    type: string
+                    enum: [Produccion, Paros, Entregas, Rechazos, OrdenTrabajoMant, Inspeccion, NoConformidad, AndonEvent]
+      responses:
+        "200":
+          description: Retry all initiated
+  /sync/stats:
+    get:
+      summary: Get synchronization statistics
+      tags:
+        - Sync
+      responses:
+        "200":
+          description: Sync statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalPending:
+                    type: integer
+                  totalError:
+                    type: integer
+                  countsByType:
+                    type: object
+                    additionalProperties:
+                      type: integer
+  /wip:
+    get:
+      summary: Get Work In Process (WIP) sync status
+      tags:
+        - Sync
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: centro
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaRango
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              format: date
+            minItems: 2
+            maxItems: 2
+        - name: estadoSync
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [PENDING, OK, ERROR]
+        - name: entityType
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [Produccion, Paros, Entregas, Rechazos, OrdenTrabajoMant, Inspeccion, NoConformidad, AndonEvent]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: List of WIP sync statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WIPSyncStatus'
+  /kpis/paros-por-centro:
+    get:
+      summary: Get downtime minutes by work center
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Downtime data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    centro:
+                      type: string
+                    centroNombre:
+                      type: string
+                    minutosParo:
+                      type: number
+                      format: float
+  /kpis/pareto-paros:
+    get:
+      summary: Get Pareto analysis of downtime reasons
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Pareto data for downtime reasons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    motivo:
+                      type: string
+                    minutos:
+                      type: number
+                      format: float
+                    acumulado:
+                      type: number
+                      format: float
+  /kpis/oee:
+    get:
+      summary: Get OEE by work center/shift
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OEE data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OEECalculado'
+  /ordenes/en-proceso:
+    get:
+      summary: Get currently active production orders
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active production orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrdenProduccionStatus'
+  /andon/activos:
+    get:
+      summary: Get active Andon events
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active Andon events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AndonEvent'
+  /usuarios:
+    get:
+      summary: Get list of users
+      tags:
+        - Maestros
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for user (name, cedula)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Usuario'
+    post:
+      summary: Create a new user
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioCreate'
+      responses:
+        "200":
+          description: User created successfully
+        "400":
+          description: Validation error
+  /usuarios/{id}:
+    patch:
+      summary: Update an existing user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioUpdate'
+      responses:
+        "200":
+          description: User updated successfully
+        "400":
+          description: Validation error
+    delete:
+      summary: Deactivate a user (soft delete)
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      responses:
+        "200":
+          description: User deactivated successfully
+  /usuarios/{id}/reset-password:
+    post:
+      summary: Reset user password
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newPassword
+              properties:
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: Password reset successful
+        "400":
+          description: Validation error
+  /usuarios/{id}/centros:
+    get:
+      summary: Get work centers assigned to a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      responses:
+        "200":
+          description: List of assigned work centers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CentroTrabajo'
+    post:
+      summary: Assign a work center to a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - centroId
+              properties:
+                centroId:
+                  type: string
+                  description: Work center code to assign
+      responses:
+        "200":
+          description: Work center assigned
+    delete:
+      summary: Unassign a work center from a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - centroId
+              properties:
+                centroId:
+                  type: string
+                  description: Work center code to unassign
+      responses:
+        "200":
+          description: Work center unassigned
+  /usuarios-centros/matriz:
+    get:
+      summary: Get matrix of user-work center assignments
+      tags:
+        - Maestros
+      responses:
+        "200":
+          description: Matrix of assignments
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+                    description: true if user is assigned to center
+  /usuarios-centros/bulk:
+    post:
+      summary: Bulk assign work centers to a user
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - usuarioId
+                - centroIds
+              properties:
+                usuarioId:
+                  type: string
+                  description: User ID (cedula)
+                centroIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Bulk assignment successful
+  /usuarios-centros/copy:
+    post:
+      summary: Copy work center assignments from one user to another
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromUsuarioId
+                - toUsuarioId
+              properties:
+                fromUsuarioId:
+                  type: string
+                  description: Source user ID (cedula)
+                toUsuarioId:
+                  type: string
+                  description: Target user ID (cedula)
+      responses:
+        "200":
+          description: Assignments copied successfully
+  /ordenes/manual:
+    post:
+      summary: Create a production order manually
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrdenProduccionManualInput'
+      responses:
+        "200":
+          description: Production order created successfully
+        "400":
+          description: Validation error
+  /ordenes/{id}/clonar:
+    post:
+      summary: Clone an existing production order
+      tags:
+        - Produccion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion) to clone
+      responses:
+        "200":
+          description: Production order cloned successfully
+  /ordenes/borrador:
+    post:
+      summary: Save a manual production order as a draft
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrdenProduccionManualInput'
+      responses:
+        "200":
+          description: Draft saved successfully
+        "400":
+          description: Validation error
+  /sync/flush:
+    post:
+      summary: Trigger immediate synchronization of all pending offline data
+      tags:
+        - Sync
+      responses:
+        "200":
+          description: Synchronization triggered
+  /sync/retry:
+    post:
+      summary: Retry synchronization for specific pending items
+      tags:
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of IDs of pending items to retry
+      responses:
+        "200":
+          description: Retry initiated
+  /sync/retry-all:
+    post:
+      summary: Retry synchronization for all filtered pending items
+      tags:
+        - Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                planta:
+                  type: string
+                linea:
+                  type: array
+                  items:
+                    type: string
+                centro:
+                  type: array
+                  items:
+                    type: string
+                turno:
+                  type: string
+                fechaRango:
+                  type: array
+                  items:
+                    type: string
+                    format: date
+                  minItems: 2
+                  maxItems: 2
+                estadoSync:
+                  type: array
+                  items:
+                    type: string
+                    enum: [PENDING, ERROR]
+                entityType:
+                  type: array
+                  items:
+                    type: string
+                    enum: [Produccion, Paros, Entregas, Rechazos, OrdenTrabajoMant, Inspeccion, NoConformidad, AndonEvent]
+      responses:
+        "200":
+          description: Retry all initiated
+  /sync/stats:
+    get:
+      summary: Get synchronization statistics
+      tags:
+        - Sync
+      responses:
+        "200":
+          description: Sync statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalPending:
+                    type: integer
+                  totalError:
+                    type: integer
+                  countsByType:
+                    type: object
+                    additionalProperties:
+                      type: integer
+  /wip:
+    get:
+      summary: Get Work In Process (WIP) sync status
+      tags:
+        - Sync
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: centro
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaRango
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              format: date
+            minItems: 2
+            maxItems: 2
+        - name: estadoSync
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [PENDING, OK, ERROR]
+        - name: entityType
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [Produccion, Paros, Entregas, Rechazos, OrdenTrabajoMant, Inspeccion, NoConformidad, AndonEvent]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: List of WIP sync statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WIPSyncStatus'
+  /kpis/paros-por-centro:
+    get:
+      summary: Get downtime minutes by work center
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Downtime data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    centro:
+                      type: string
+                    centroNombre:
+                      type: string
+                    minutosParo:
+                      type: number
+                      format: float
+  /kpis/pareto-paros:
+    get:
+      summary: Get Pareto analysis of downtime reasons
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Pareto data for downtime reasons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    motivo:
+                      type: string
+                    minutos:
+                      type: number
+                      format: float
+                    acumulado:
+                      type: number
+                      format: float
+  /kpis/oee:
+    get:
+      summary: Get OEE by work center/shift
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+        - name: fechaInicio
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OEE data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OEECalculado'
+  /ordenes/en-proceso:
+    get:
+      summary: Get currently active production orders
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+        - name: turno
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active production orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrdenProduccionStatus'
+  /andon/activos:
+    get:
+      summary: Get active Andon events
+      tags:
+        - Produccion
+      parameters:
+        - name: planta
+          in: query
+          schema:
+            type: string
+        - name: linea
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active Andon events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AndonEvent'
+  /usuarios:
+    get:
+      summary: Get list of users
+      tags:
+        - Maestros
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for user (name, cedula)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Usuario'
+    post:
+      summary: Create a new user
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioCreate'
+      responses:
+        "200":
+          description: User created successfully
+        "400":
+          description: Validation error
+  /usuarios/{id}:
+    patch:
+      summary: Update an existing user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioUpdate'
+      responses:
+        "200":
+          description: User updated successfully
+        "400":
+          description: Validation error
+    delete:
+      summary: Deactivate a user (soft delete)
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      responses:
+        "200":
+          description: User deactivated successfully
+  /usuarios/{id}/reset-password:
+    post:
+      summary: Reset user password
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newPassword
+              properties:
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: Password reset successful
+        "400":
+          description: Validation error
+  /usuarios/{id}/centros:
+    get:
+      summary: Get work centers assigned to a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      responses:
+        "200":
+          description: List of assigned work centers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CentroTrabajo'
+    post:
+      summary: Assign a work center to a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - centroId
+              properties:
+                centroId:
+                  type: string
+                  description: Work center code to assign
+      responses:
+        "200":
+          description: Work center assigned
+    delete:
+      summary: Unassign a work center from a user
+      tags:
+        - Maestros
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID (cedula)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - centroId
+              properties:
+                centroId:
+                  type: string
+                  description: Work center code to unassign
+      responses:
+        "200":
+          description: Work center unassigned
+  /usuarios-centros/matriz:
+    get:
+      summary: Get matrix of user-work center assignments
+      tags:
+        - Maestros
+      responses:
+        "200":
+          description: Matrix of assignments
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: boolean
+                    description: true if user is assigned to center
+  /usuarios-centros/bulk:
+    post:
+      summary: Bulk assign work centers to a user
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - usuarioId
+                - centroIds
+              properties:
+                usuarioId:
+                  type: string
+                  description: User ID (cedula)
+                centroIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Bulk assignment successful
+  /usuarios-centros/copy:
+    post:
+      summary: Copy work center assignments from one user to another
+      tags:
+        - Maestros
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromUsuarioId
+                - toUsuarioId
+              properties:
+                fromUsuarioId:
+                  type: string
+                  description: Source user ID (cedula)
+                toUsuarioId:
+                  type: string
+                  description: Target user ID (cedula)
+      responses:
+        "200":
+          description: Assignments copied successfully
+  /ordenes/manual:
+    post:
+      summary: Create a production order manually
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrdenProduccionManualInput'
+      responses:
+        "200":
+          description: Production order created successfully
+        "400":
+          description: Validation error
+  /ordenes/{id}/clonar:
+    post:
+      summary: Clone an existing production order
+      tags:
+        - Produccion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Production order ID (opPadre_opNumero_operacion) to clone
+      responses:
+        "200":
+          description: Production order cloned successfully
+  /ordenes/borrador:
+    post:
+      summary: Save a manual production order as a draft
+      tags:
+        - Produccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrdenProduccionManualInput'
+      responses:
+        "200":
+          description: Draft saved successfully
+        "400":
+          description: Validation error
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Planta:
+      type: object
+      properties:
+        codigo:
+          type: string
+        nombre:
+          type: string
+        pais:
+          type: string
+        zonaHoraria:
+          type: string
+        activa:
+          type: boolean
+    Linea:
+      type: object
+      properties:
+        codigo:
+          type: string
+        nombre:
+          type: string
+        planta:
+          $ref: '#/components/schemas/Planta'
+        activa:
+          type: boolean
+    CentroTrabajo:
+      type: object
+      properties:
+        codigo:
+          type: string
+        nombre:
+          type: string
+        linea:
+          $ref: '#/components/schemas/Linea'
+        grupo:
+          type: string
+        divisionTiempo:
+          type: string
+        bodegaCT:
+          type: string
+        centroAnterior:
+          $ref: '#/components/schemas/CentroTrabajo'
+        activo:
+          type: boolean
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+    Turno:
+      type: object
+      properties:
+        codigo:
+          type: string
+        nombre:
+          type: string
+        planta:
+          $ref: '#/components/schemas/Planta'
+        horaInicio:
+          type: string
+          format: time
+        horaFin:
+          type: string
+          format: time
+        diasAplicable:
+          type: string
+        activo:
+          type: boolean
+    UsuarioProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        nombre:
+          type: string
+        email:
+          type: string
+          format: email
+        rol:
+          type: string
+          enum: [Operario, Supervisor, Mantenimiento, Calidad, Admin]
+        centros:
+          type: array
+          items:
+            $ref: '#/components/schemas/CentroTrabajo'
+    Usuario:
+      allOf:
+        - $ref: '#/components/schemas/UsuarioProfile'
+        - type: object
+          properties:
+            telefono:
+              type: string
+            activo:
+              type: boolean
+            s4_sync_status:
+              type: string
+              enum: [PENDING, OK, ERROR]
+            s4_sync_ts:
+              type: string
+              format: date-time
+            s4_guid:
+              type: string
+              format: uuid
+    UsuarioCreate:
+      type: object
+      required:
+        - id
+        - nombre
+        - email
+        - password
+        - rol
+      properties:
+        id:
+          type: string
+          description: User ID (cedula)
+        nombre:
+          type: string
+        email:
+          type: string
+          format: email
+        telefono:
+          type: string
+        password:
+          type: string
+          format: password
+          minLength: 8
+        rol:
+          type: string
+          enum: [Operario, Supervisor, Mantenimiento, Calidad, Admin]
+        activo:
+          type: boolean
+          default: true
+    UsuarioUpdate:
+      type: object
+      properties:
+        nombre:
+          type: string
+        email:
+          type: string
+          format: email
+        telefono:
+          type: string
+        rol:
+          type: string
+          enum: [Operario, Supervisor, Mantenimiento, Calidad, Admin]
+        activo:
+          type: boolean
+    TipoActividad:
+      type: object
+      properties:
+        codigo:
+          type: string
+        descripcion:
+          type: string
+        categoria:
+          type: string
+        esProductiva:
+          type: boolean
+        activo:
+          type: boolean
+    CodigoOperacion:
+      type: object
+      properties:
+        codigo:
+          type: string
+        descripcion:
+          type: string
+        tipoActividad:
+          $ref: '#/components/schemas/TipoActividad'
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        activo:
+          type: boolean
+    OrdenProduccion:
+      type: object
+      properties:
+        opPadre:
+          type: string
+        opNumero:
+          type: string
+        operacion:
+          type: string
+        itemOP:
+          type: string
+        itemOPRef:
+          type: string
+        itemOPResumen:
+          type: string
+        estado:
+          type: string
+          enum: [Aprobada, EnProceso, Completada, Cancelada, Borrador]
+        fechaInicio:
+          type: string
+          format: date-time
+        fechaFin:
+          type: string
+          format: date-time
+        fechaDocumento:
+          type: string
+          format: date-time
+        cantEjecutar:
+          type: number
+          format: float
+        cantPendiente:
+          type: number
+          format: float
+        cantCompleta:
+          type: number
+          format: float
+          default: 0
+        cantRetrabajo:
+          type: number
+          format: float
+          default: 0
+        cantRechazos:
+          type: number
+          format: float
+          default: 0
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        bodega:
+          type: string
+        linea:
+          $ref: '#/components/schemas/Linea'
+        claseOP:
+          type: string
+          enum: [UNICA, COMPONENTE, RETRABAJO]
+        opReferencial:
+          type: string
+        notas:
+          type: string
+        pesoEnKls:
+          type: number
+          format: float
+        cantidadEjecutarKls:
+          type: number
+          format: float
+        origenManual:
+          type: boolean
+          default: false
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+        s4_error_msg:
+          type: string
+    OrdenProduccionStatus:
+      type: object
+      properties:
+        opNumero:
+          type: string
+        operacion:
+          type: string
+        centroTrabajo:
+          type: string
+        estado:
+          type: string
+        operario:
+          type: string
+        horaInicio:
+          type: string
+          format: date-time
+        duracionActual:
+          type: integer
+          description: Duration in seconds
+    OperacionOrden:
+      type: object
+      properties:
+        orden:
+          $ref: '#/components/schemas/OrdenProduccion'
+        numeroOperacion:
+          type: integer
+        codigoOperacion:
+          $ref: '#/components/schemas/CodigoOperacion'
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        cantPlaneada:
+          type: number
+          format: float
+        cantCompleta:
+          type: number
+          format: float
+          default: 0
+        estado:
+          type: string
+          enum: [Pendiente, EnProceso, Completada, Saltada]
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+    TipoParo:
+      type: object
+      properties:
+        codigo:
+          type: string
+        descripcion:
+          type: string
+        tipo:
+          type: string
+          enum: [Planificado, NoPlanificado]
+        tipohora:
+          type: string
+        categoria:
+          type: string
+        requiereMotivo:
+          type: boolean
+        color:
+          type: string
+          format: hex-color
+        activo:
+          type: boolean
+    MotivoRechazo:
+      type: object
+      properties:
+        id:
+          type: string
+        descripcion:
+          type: string
+        activo:
+          type: boolean
+    RegistroParo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        registroProduccion:
+          type: string
+          format: uuid
+        orden:
+          $ref: '#/components/schemas/OrdenProduccion'
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        operario:
+          $ref: '#/components/schemas/UsuarioProfile'
+        turno:
+          $ref: '#/components/schemas/Turno'
+        fecha:
+          type: string
+          format: date-time
+        horaInicio:
+          type: string
+          format: date-time
+        horaFin:
+          type: string
+          format: date-time
+        duracionSeg:
+          type: integer
+        tipoParo:
+          $ref: '#/components/schemas/TipoParo'
+        codigoOperacion:
+          $ref: '#/components/schemas/CodigoOperacion'
+        motivoLibre:
+          type: string
+        esPlanificado:
+          type: boolean
+        autoDetectado:
+          type: boolean
+        sensorDataJson:
+          type: string
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+        s4_error_msg:
+          type: string
+        offline_id:
+          type: string
+        offline_ts:
+          type: string
+          format: date-time
+    RegistroParoInput:
+      type: object
+      required:
+        - ordenId
+        - centroId
+        - operarioId
+        - turnoId
+        - horaInicio
+        - lote
+        - tipoParoId
+      properties:
+        ordenId:
+          type: string
+        centroId:
+          type: string
+        operarioId:
+          type: string
+        turnoId:
+          type: string
+        lote:
+          type: string
+        horaInicio:
+          type: string
+          format: date-time
+        horaFin:
+          type: string
+          format: date-time
+        duracionSeg:
+          type: integer
+        tipoParoId:
+          type: string
+        codigoOperacionId:
+          type: string
+        motivoLibre:
+          type: string
+        esPlanificado:
+          type: boolean
+        offline_id:
+          type: string
+    RegistroProduccion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orden:
+          $ref: '#/components/schemas/OrdenProduccion'
+        operacion:
+          $ref: '#/components/schemas/OperacionOrden'
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        operario:
+          $ref: '#/components/schemas/UsuarioProfile'
+        turno:
+          $ref: '#/components/schemas/Turno'
+        fecha:
+          type: string
+          format: date-time
+        horaInicio:
+          type: string
+          format: date-time
+        horaFin:
+          type: string
+          format: date-time
+        duracionSeg:
+          type: integer
+        piezasConformes:
+          type: number
+          format: float
+          default: 0
+        piezasNoConformes:
+          type: number
+          format: float
+          default: 0
+        lote:
+          type: string
+        paquete:
+          type: string
+        requerimiento:
+          type: string
+        tipoHora:
+          type: string
+        tipoActividad:
+          $ref: '#/components/schemas/TipoActividad'
+        codigoOperacion:
+          $ref: '#/components/schemas/CodigoOperacion'
+        motivoRechazo:
+          $ref: '#/components/schemas/MotivoRechazo'
+        motivoLibre:
+          type: string
+        oee_disponibilidad:
+          type: number
+          format: float
+        oee_desempeno:
+          type: number
+          format: float
+        oee_calidad:
+          type: number
+          format: float
+        oee_global:
+          type: number
+          format: float
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+        s4_error_msg:
+          type: string
+        offline_id:
+          type: string
+        offline_ts:
+          type: string
+          format: date-time
+    RegistroProduccionInput:
+      type: object
+      required:
+        - ordenId
+        - centroId
+        - operarioId
+        - turnoId
+        - horaInicio
+        - lote
+        - piezasConformes
+        - piezasNoConformes
+        - tipoActividadSiguienteId
+        - codigoOperacionSiguienteId
+      properties:
+        ordenId:
+          type: string
+        centroId:
+          type: string
+        operarioId:
+          type: string
+        turnoId:
+          type: string
+        lote:
+          type: string
+        paquete:
+          type: string
+        horaInicio:
+          type: string
+          format: date-time
+        horaFin:
+          type: string
+          format: date-time
+        duracionSeg:
+          type: integer
+        piezasConformes:
+          type: number
+          format: float
+        piezasNoConformes:
+          type: number
+          format: float
+        motivoRechazoId:
+          type: string
+        motivoLibre:
+          type: string
+        tipoActividadSiguienteId:
+          type: string
+        codigoOperacionSiguienteId:
+          type: string
+        offline_id:
+          type: string
+    WIPSyncStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+          enum: [Produccion, Paros, Entregas, Rechazos, OrdenTrabajoMant, Inspeccion, NoConformidad, AndonEvent]
+        centro:
+          type: string
+        fecha:
+          type: string
+          format: date-time
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+        s4_guid:
+          type: string
+          format: uuid
+        s4_error_msg:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    OEECalculado:
+      type: object
+      properties:
+        centro:
+          type: string
+        centroNombre:
+          type: string
+        fecha:
+          type: string
+          format: date
+        turno:
+          type: string
+        t_produccion:
+          type: integer
+        t_paro:
+          type: integer
+        t_setup:
+          type: integer
+        good:
+          type: number
+          format: float
+        scrap:
+          type: number
+          format: float
+        calidad_pct:
+          type: number
+          format: float
+        disponibilidad_pct:
+          type: number
+          format: float
+        desempeno_pct:
+          type: number
+          format: float
+    AndonEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        centroTrabajo:
+          $ref: '#/components/schemas/CentroTrabajo'
+        tipo:
+          type: string
+        severidad:
+          type: string
+        mensaje:
+          type: string
+        creadoPor:
+          $ref: '#/components/schemas/UsuarioProfile'
+        creadoEn:
+          type: string
+          format: date-time
+        atendidoPor:
+          $ref: '#/components/schemas/UsuarioProfile'
+        atendidoEn:
+          type: string
+          format: date-time
+        resuelto:
+          type: boolean
+        resueltoEn:
+          type: string
+          format: date-time
+        tiempoRespuestaSeg:
+          type: integer
+        s4_sync_status:
+          type: string
+          enum: [PENDING, OK, ERROR]
+        s4_sync_ts:
+          type: string
+          format: date-time
+    OrdenProduccionManualInput:
+      type: object
+      required:
+        - opPadre
+        - opNumero
+        - operacion
+        - fechaInicio
+        - fechaFin
+        - cantEjecutar
+        - claseOP
+        - centroTrabajoId
+        - itemOP
+        - bodega
+        - lineaId
+      properties:
+        opPadre:
+          type: string
+        opNumero:
+          type: string
+        operacion:
+          type: string
+        itemOP:
+          type: string
+        itemOPRef:
+          type: string
+        itemOPResumen:
+          type: string
+        estado:
+          type: string
+          enum: [Aprobada, Borrador]
+          default: Borrador
+        fechaInicio:
+          type: string
+          format: date-time
+        fechaFin:
+          type: string
+          format: date-time
+        fechaDocumento:
+          type: string
+          format: date-time
+        cantEjecutar:
+          type: number
+          format: float
+          minimum: 0
+        cantPendiente:
+          type: number
+          format: float
+          minimum: 0
+        cantCompleta:
+          type: number
+          format: float
+          default: 0
+        cantRetrabajo:
+          type: number
+          format: float
+          default: 0
+        cantRechazos:
+          type: number
+          format: float
+          default: 0
+        centroTrabajoId:
+          type: string
+        bodega:
+          type: string
+        lineaId:
+          type: string
+        claseOP:
+          type: string
+          enum: [UNICA, COMPONENTE, RETRABAJO]
+        opReferencial:
+          type: string
+        notas:
+          type: string
+        pesoEnKls:
+          type: number
+          format: float
+        cantidadEjecutarKls:
+          type: number
+          format: float

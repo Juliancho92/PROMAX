@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PROMAX - Centro de Trabajo (Variante Kiosk Touch)</title>
+<style>
+    :root {
+        --bg: #14181f;
+        --panel: #1d232e;
+        --panel-2: #232b38;
+        --line: #2e3846;
+        --text: #e8edf4;
+        --muted: #8fa0b3;
+        --blue: #4f9cff;
+        --blue-dark: #1b589c;
+        --green: #5bb328;
+        --green-hi: #7ed957;
+        --amber: #ffb020;
+        --danger: #e05252;
+        --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+        min-height: 100vh;
+        padding: 12px;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+    /* ===== Header ===== */
+    header {
+        display: flex; align-items: center; justify-content: space-between;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 12px 18px;
+    }
+    .logo { font-size: 34px; font-weight: 900; font-style: italic; letter-spacing: -1px; line-height: 1; }
+    .logo .pro { color: var(--blue); }
+    .logo .max { color: var(--green-hi); }
+    .head-title { text-align: center; }
+    .head-title h2 { font-size: 17px; letter-spacing: 1.5px; color: var(--text); }
+    .head-title div { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    .head-right { display: flex; align-items: center; gap: 12px; }
+    .user-chip {
+        display: flex; align-items: center; gap: 10px;
+        background: var(--panel-2); border: 1px solid var(--line);
+        padding: 8px 14px; border-radius: 999px; font-weight: 600; font-size: 14px;
+    }
+    .user-chip .dot { width: 34px; height: 34px; border-radius: 50%; background: var(--blue-dark);
+        display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .head-btn {
+        min-width: 52px; height: 52px; border-radius: 12px;
+        background: var(--panel-2); border: 1px solid var(--line);
+        color: var(--text); font-size: 20px; cursor: pointer;
+    }
+    .head-btn.exit { background: #4a2222; border-color: #7a3030; color: #ff9c9c; }
+
+    /* ===== Filtros ===== */
+    .filters {
+        display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px 18px;
+    }
+    .f-group { display: flex; flex-direction: column; gap: 6px; }
+    .f-group label { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 1px; }
+    .f-box {
+        display: flex; align-items: center; height: 52px; min-width: 180px;
+        background: #10141b; border: 2px solid var(--blue-dark);
+        border-radius: 10px; overflow: hidden;
+    }
+    .f-box select, .f-box input {
+        height: 100%; flex: 1; border: none; outline: none;
+        background: transparent; color: var(--text);
+        font-size: 16px; font-weight: 700; padding: 0 12px;
+    }
+    .f-box select option { background: #10141b; }
+    .f-box .scan {
+        height: 100%; border: none; border-left: 1px solid var(--line);
+        background: #33404f; color: #fff; padding: 0 14px; cursor: pointer;
+        font-size: 15px; letter-spacing: 2px; font-weight: 800;
+    }
+    /* toggle */
+    .switch { position: relative; width: 64px; height: 34px; display: inline-block; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #333d4c; border: 1px solid var(--line);
+        border-radius: 999px; cursor: pointer; transition: .25s; }
+    .slider::before { content: ""; position: absolute; width: 26px; height: 26px; left: 3px; top: 3px;
+        background: #fff; border-radius: 50%; transition: .25s; }
+    input:checked + .slider { background: var(--green); border-color: var(--green-hi); }
+    input:checked + .slider::before { transform: translateX(30px); }
+
+    .nesteo {
+        display: none; align-items: center; gap: 8px;
+        border: 2px dashed var(--blue); border-radius: 10px;
+        padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--blue);
+    }
+    .nesteo select { background: #10141b; color: var(--text); border: none; outline: none;
+        font-size: 13px; font-weight: 700; padding: 6px 8px; border-radius: 8px; }
+
+    /* ===== Cards de órdenes ===== */
+    .orders { display: flex; flex-direction: column; gap: 12px; }
+    .orders-header { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; }
+    .orders-header h3 { font-size: 15px; color: var(--muted); letter-spacing: 1px; }
+    .orders-header .count { background: var(--panel-2); border: 1px solid var(--line);
+        padding: 6px 14px; border-radius: 999px; font-size: 13px; color: var(--muted); }
+
+    .order-card {
+        display: grid;
+        grid-template-columns: 56px 1.6fr 1.2fr 0.9fr 0.7fr auto;
+        gap: 16px; align-items: center;
+        background: var(--panel); border: 1px solid var(--line);
+        border-left: 6px solid var(--line);
+        border-radius: var(--radius); padding: 16px 18px;
+        transition: .15s;
+    }
+    .order-card:hover { background: var(--panel-2); }
+    .order-card.selected { border-left-color: var(--green); background: #1d2a1d; border-color: #37502f; }
+
+    .chk {
+        width: 44px; height: 44px; border-radius: 10px;
+        border: 2px solid #465366; background: #10141b;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 22px; color: transparent; user-select: none;
+    }
+    .order-card.selected .chk { background: var(--green); border-color: var(--green-hi); color: #fff; }
+
+    .o-main .o-num { font-size: 18px; font-weight: 800; color: var(--blue); }
+    .o-main .o-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .o-ref { font-size: 14px; color: var(--text); font-weight: 600; line-height: 1.35; }
+    .o-rqi { font-size: 13px; color: var(--muted); line-height: 1.35; }
+    .o-qty { text-align: center; }
+    .o-qty .n { font-size: 26px; font-weight: 900; color: var(--amber); }
+    .o-qty .l { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+    .o-meta { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    .pill { font-size: 11px; font-weight: 800; letter-spacing: .5px; padding: 5px 12px; border-radius: 999px; }
+    .pill.op { background: #16305a; color: #8ec2ff; }
+    .pill.fecha { background: #2a2a35; color: #b9a8e8; }
+    .o-actions { display: flex; gap: 10px; }
+    .icon-btn {
+        width: 46px; height: 46px; border-radius: 12px; cursor: pointer;
+        background: var(--panel-2); border: 1px solid var(--line); font-size: 18px; color: var(--text);
+    }
+    .icon-btn.go { background: #16305a; border-color: #2c5aa0; color: #8ec2ff; }
+
+    /* ===== Barra inferior ===== */
+    .footer-bar {
+        display: flex; justify-content: space-between; align-items: center;
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px 18px;
+    }
+    .sel-info { font-size: 14px; color: var(--muted); }
+    .sel-info b { color: var(--green-hi); font-size: 18px; }
+    .btn-cancel {
+        height: 54px; padding: 0 26px; border-radius: 12px; font-size: 15px; font-weight: 700;
+        background: transparent; color: var(--muted); border: 2px solid var(--line); cursor: pointer;
+    }
+    .btn-iniciar {
+        height: 64px; padding: 0 42px; border-radius: 16px; border: none; cursor: pointer;
+        background: linear-gradient(180deg, var(--green-hi), #459a1b);
+        color: #fff; font-size: 20px; font-weight: 900; letter-spacing: 1px;
+        box-shadow: 0 6px 0 #2e6b12, 0 10px 24px rgba(0,0,0,.45);
+    }
+    .btn-iniciar:active { transform: translateY(3px); box-shadow: 0 3px 0 #2e6b12; }
+    .btn-iniciar:disabled { filter: grayscale(.8); opacity: .45; cursor: not-allowed; box-shadow: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+    <header>
+        <div class="logo"><span class="pro">Pro</span><span class="max">Max</span></div>
+        <div class="head-title">
+            <h2>CENTRO DE TRABAJO</h2>
+            <div id="centroNombre">GUILLOTINA EXCENTRICA MECANICA</div>
+        </div>
+        <div class="head-right">
+            <div class="user-chip"><span class="dot">👤</span> julian galvis</div>
+            <button class="head-btn" title="Actualizar">🔄</button>
+            <button class="head-btn" title="Info turnos">❓</button>
+            <button class="head-btn exit" title="Salir">🚪</button>
+        </div>
+    </header>
+
+    <div class="filters">
+        <div class="f-group">
+            <label>SELECCIONE TURNO</label>
+            <div class="f-box"><select><option>T1</option><option>T2</option><option>T3</option></select></div>
+        </div>
+        <div class="f-group">
+            <label>CENTRO DE TRABAJO</label>
+            <div class="f-box">
+                <select id="centroSelect">
+                    <option value="10024">10024 - GUILLOTINA EXCENTRICA</option>
+                    <option value="10037">10037 - PLASMA PROARC MASTER 30</option>
+                    <option value="10050">10050 - PRENSA CIZALLA</option>
+                </select>
+            </div>
+        </div>
+        <div class="f-group">
+            <label>No. ORDEN</label>
+            <div class="f-box"><input type="text" value="11844"><button class="scan">||||</button></div>
+        </div>
+        <div class="f-group">
+            <label>OPERACION</label>
+            <div class="f-box"><select><option>10</option><option>20</option><option>30</option></select></div>
+        </div>
+        <div class="f-group">
+            <label>ÓRDENES MÚLTIPLES</label>
+            <label class="switch">
+                <input type="checkbox" id="chkMultiple">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="nesteo" id="nesteoBox">
+            NESTEO:
+            <select><option>513314_PROARC01.CNC</option><option>513315_PROARC02.CNC</option></select>
+        </div>
+    </div>
+
+    <div class="orders">
+        <div class="orders-header">
+            <h3>ÓRDENES PENDIENTES</h3>
+            <span class="count" id="contador">0 seleccionadas</span>
+        </div>
+
+        <div class="order-card" onclick="selectCard(this)">
+            <div class="chk">✓</div>
+            <div class="o-main">
+                <div class="o-num">PMF-OPA-00011844</div>
+                <div class="o-sub">OPA-00011844 · Línea: ELEVADOR 680 SEMI</div>
+            </div>
+            <div class="o-ref">SERVICIO-CIZALLAS SERVICIO CIZALLAS</div>
+            <div class="o-rqi">PROBETAS SOLDADURA DE PUNTO</div>
+            <div class="o-qty"><div class="n">1</div><div class="l">CANT.</div></div>
+            <div class="o-meta">
+                <span class="pill op">OP 10</span>
+                <span class="pill fecha">02-02-2026</span>
+            </div>
+        </div>
+
+        <div class="order-card" onclick="selectCard(this)">
+            <div class="chk">✓</div>
+            <div class="o-main">
+                <div class="o-num">PMF-OPH-00028732</div>
+                <div class="o-sub">OPH-00028732 · Línea: —</div>
+            </div>
+            <div class="o-ref">10510074118-CORTE BRAZO_REFUERZO-CORTE</div>
+            <div class="o-rqi">RQI 41021; 10F25.</div>
+            <div class="o-qty"><div class="n">40</div><div class="l">CANT.</div></div>
+            <div class="o-meta">
+                <span class="pill op">OP 10</span>
+                <span class="pill fecha">11-05-2026</span>
+            </div>
+        </div>
+
+        <div class="order-card" onclick="selectCard(this)">
+            <div class="chk">✓</div>
+            <div class="o-main">
+                <div class="o-num">PMF-OPH-00028730</div>
+                <div class="o-sub">OPH-00028730 · Línea: —</div>
+            </div>
+            <div class="o-ref">10510074111-CORTE CANAL_SUPERIOR_COMP-CORTE</div>
+            <div class="o-rqi">RQI 41021; 10F25.</div>
+            <div class="o-qty"><div class="n">10</div><div class="l">CANT.</div></div>
+            <div class="o-meta">
+                <span class="pill op">OP 10</span>
+                <span class="pill fecha">11-05-2026</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-bar">
+        <div class="sel-info">Órdenes seleccionadas: <b id="selCount">0</b> · Cantidad total: <span id="qtyTotal">0</span></div>
+        <div style="display:flex; gap:14px;">
+            <button class="btn-cancel">Cancelar</button>
+            <button class="btn-iniciar" id="btnIniciar" disabled>INICIAR ▶</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function selectCard(card) {
+        card.classList.toggle('selected');
+        refresh();
+    }
+    function refresh() {
+        const sel = document.querySelectorAll('.order-card.selected').length;
+        let qty = 0;
+        document.querySelectorAll('.order-card.selected .o-qty .n').forEach(e => qty += parseInt(e.textContent) || 0);
+        document.getElementById('selCount').textContent = sel;
+        document.getElementById('contador').textContent = sel + ' seleccionadas';
+        document.getElementById('qtyTotal').textContent = qty;
+        const multi = document.getElementById('chkMultiple').checked;
+        document.getElementById('btnIniciar').disabled = !(sel > 0 || multi);
+    }
+    document.getElementById('chkMultiple').addEventListener('change', refresh);
+    document.getElementById('centroSelect').addEventListener('change', function () {
+        document.getElementById('nesteoBox').style.display = (this.value === '10037') ? 'flex' : 'none';
+        document.getElementById('centroNombre').textContent =
+            this.value === '10037' ? 'PLASMA PROARC MASTER 30' :
+            this.value === '10050' ? 'PRENSA CIZALLA' : 'GUILLOTINA EXCENTRICA MECANICA';
+    });
+</script>
+</body>
+</html>

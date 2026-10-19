@@ -1,0 +1,30 @@
+# Dependencias
+node_modules/
+
+# Build / CAP
+dist/
+gen/
+target/
+.cds/
+*.sqlite3
+dev.sqlite3
+coverage/
+
+# Entorno y secretos
+.env
+.env.*
+default-env.json
+credentials*.txt
+*.pem
+*.key
+*.p12
+
+# Logs
+*.log
+logs/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
